@@ -1,0 +1,300 @@
+---
+title: "Medical Conditions and Information and Their Correlation With Diabetes"
+author: "Bennett Cleff"
+date: '2022-04-28'
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, fig.align = "center", warning = F, message = F, R.options=list(max.print=100,dplyr.print_max=100))
+```
+
+**Medical Conditions and Information and Their Correlation With Diabetes**
+
+*Diabetes is slowly becoming a more prevalent disease in the United States as well as other developed countries. Early diagnosis and prevention can improve quality of life groups which are prone to it. To explore the connection between different medical conditions and information about patients and their likelihood of having diabetes, a dataset from kaggle was obtained. Data was collected from Females 21 years of age or older from Pima, India*
+
+*The dataset includes variables concerning the age, number of times pregnant, plasma glucose levels after fasting, blood pressure and diabetes diagnosis among other variables. This dataset belongs to the public domain but originally came from a study which attempted to predict diabetes diagnosis among Indians. The link to the data is below:*
+
+[*https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database?resource=download*](https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database?resource=download){.uri}
+
+*During the analysis I expect there to be a positive likelihood between diabetes diagnosis, number of pregnancies, blood pressure. Data analysis tools such as dplyr and ggplot will visualize and manipulate the data sets so that they can be visualized. Additionally, I will apply clustering and k mean rstudio functions to the data to explore any patterns. Additionally, I use machine learning to predict the diabetes diagnosis of each individual in the dataset.*
+
+```{r}
+#load packages necessary for projects
+library(readr)
+library("tidyverse")
+library(plotROC)
+library(factoextra)
+library(cluster)
+library(psych)
+library(GGally)
+#read package
+diabetes <- read_csv("diabetes.csv")
+#convert Diabetes diagnosis into factor
+diabetes <- diabetes %>%
+  mutate(Outcome = as.factor(Outcome))
+```
+
+*No tidying was necessary because each column had a variable*
+
+**Exploratory Data Analysis**
+
+```{r}
+#make dataframe for health info of each patient
+Diabetes_num <- diabetes %>%
+  select_if(is.numeric) 
+
+#display correlation coefficients between each variable
+cor(Diabetes_num, use = "pairwise.complete.obs")
+
+#display pairwise distribution of different variables
+pairs.panels(Diabetes_num, 
+             method = "pearson", # correlation coefficient method
+             hist.col = "red", # color of histogram 
+             smooth = FALSE, density = FALSE, ellipses = FALSE)
+
+ 
+```
+
+**Findings and Results:**
+
+*Here we see that blood glucose levels have the strongest effect on getting a diabetes diagnosis. There is a 0.46 correlation between blood glucose levels and diabetes diagnosis. This is to be expected because diabetes results in the inability to effectively absorb sugar from the blood into the body. We also see that blood pressure has the weakest correlation with diabetes diagnosis because it can be caused by a wide variety of medical diagnosis. Those with type I diabetes can have healthy hearts in spite of their inability to produce insulin.*
+
+**Clustering Data Analysis**
+
+```{r}
+library(NbClust)
+diabetes
+
+#scale variables
+diabetes_scaled <- diabetes %>%
+  select(-Outcome) %>%
+  scale()
+
+#display change in average silhouette across different K numbers
+fviz_nbclust(diabetes_scaled, kmeans, method = "silhouette", k.max = 24) + theme_minimal() + ggtitle("The Silhouette Plot")
+
+#run pam and kmean algorithms
+pam_results <- diabetes_scaled %>%
+  pam(2) 
+
+kmeans_results <- diabetes_scaled %>%
+  kmeans(2) 
+
+#add clusters created by pam and kmean to diabetes datasets
+diabetes_pam <- diabetes %>%
+  mutate(pamcluster = as.factor(pam_results$cluster))
+
+diabetes_kmeans <- diabetes %>%
+  mutate(kcluster = as.factor(kmeans_results$cluster))
+
+
+#map distribution of clusters and outcomes based on dimensions for kmean and pam methods
+pam_results %>%
+  fviz_cluster(data = diabetes_scaled)
+
+kmeans_results %>%
+  fviz_cluster(data = diabetes_scaled)
+
+#map distribution of clusters and outcomes based on BMI and Glucose Levels for kmean and pam methods
+diabetes_pam %>%
+    ggplot(aes(Glucose, BMI, color = pamcluster, shape = Outcome)) +
+    geom_point()
+
+diabetes_kmeans %>%
+    ggplot(aes(Glucose, BMI, color = kcluster, shape = Outcome)) +
+    geom_point()
+
+#calculate accuracy of pam and kmean
+table(diabetes_pam$pamcluster, diabetes_pam$Outcome)
+(335+ 157)/768
+
+table(diabetes_kmeans$kcluster, diabetes_kmeans$Outcome)
+(356+ 156)/768
+
+#display the means of different medical information within each group
+diabetes_pam %>%
+  group_by(pamcluster) %>%
+  summarize_if(is.numeric, mean, na.rm = T)
+
+#display pairwise distribution of each variable with eachother
+ggpairs(diabetes_pam, columns = 1:8, aes(color = pamcluster))
+
+#display average sillhouette width for each group
+pam_results$silinfo$avg.width
+```
+
+**Findings and Results**
+
+Here we see that using PAM and kmeans cannot effectively predict the diagnosis of individual patients based off of the variables being used in analysis. A PAM analysis has 64% accuracy while kmeans analysis has a 66% accuracy. In addition, the average silhouette width is 0.16. This means the algorithm could not find any substantial groups in a two dimensional analysis.
+
+Based off of the averages of medical info in clusters 1 and 2, it is likely that cluster 2 represents the diabetic group and cluster 1 represents the nondiabetic group. This is because cluster 2 has a higher blood pressure, number of pregnancies, fasting glucose levels and age.
+
+**Dimensionality Reduction**
+
+```{r}
+#perform dimensionallity analysis
+pca_res <-prcomp(diabetes_scaled, scale = F)
+
+#make scree plot to determine percentage of variance explained by each dimension
+
+#get eigenvalues for each dimension and percent explanation of each 
+pca_res %>%
+  get_eigenvalue()
+
+pca_res %>%
+  fviz_eig(addlabels = T)
+
+#visualize clusters after dimension reduction
+pam_results %>%
+  fviz_cluster(data = diabetes, shape = diabetes$Outcome) +
+  geom_point(aes(shape = diabetes$Outcome)) +
+  guides(shape = guide_legend(title = "shape"))
+
+#view top variable contributors to dimension 1
+fviz_contrib(pca_res, choice = "ind", axes = 1, top = 5)
+#229
+fviz_contrib(pca_res, choice = "var", axes = 1, top = 5)
+#BMI
+fviz_contrib(pca_res, choice = "ind", axes = 2, top = 5)
+#490
+fviz_contrib(pca_res, choice = "var", axes = 2, top = 5)
+#Age
+fviz_contrib(pca_res, choice = "var", axes = 3, top = 5)
+#BloodPressure
+fviz_contrib(pca_res, choice = "ind", axes = 3, top = 5)
+#229
+fviz_contrib(pca_res, choice = "var", axes = 4, top = 5)
+#Diabetes Pedigree
+fviz_contrib(pca_res, choice = "ind", axes = 4, top = 5)
+#446
+fviz_contrib(pca_res, choice = "var", axes = 5, top = 5)
+#skin thickness
+fviz_contrib(pca_res, choice = "ind", axes = 5, top = 5)
+#59
+```
+
+**Findings and Results**
+
+Approximately 5 dimension account for 80 percent of the variation in the data.
+With two dimensions, the clusters overlap a great deal. Notably, BMI and Blood Pressure, skin thickness, and Age are top contributing variables across the first 5 dimensions. It is also worth noting that observation 229 is a top contributor to variance in more than one dimension.
+
+**Classification and Cross Validation**
+
+```{r}
+#view distribution of diabetes diagnosis across different BMIs
+
+#change outcome to numeric variable 
+diabetes <- diabetes %>%
+  mutate(Outcome = as.numeric(Outcome)) %>%
+  mutate(Outcome = Outcome -1)
+
+#build a logistic regression
+model <- glm(Outcome ~ BMI + Pregnancies + Glucose + BloodPressure + SkinThickness + Insulin, family = "binomial", data = diabetes)
+
+#add logistic regression predictions to dataframe containing actual results
+log_diabetes <- diabetes %>% 
+  mutate(probability = predict(model, type = "response"),
+         predicted = ifelse(probability > 0.5, 1, 0)) %>%
+  # Give a name to the rows
+  rownames_to_column("Patient") %>% 
+  select(Patient, BMI, Age, Outcome, probability, predicted)
+head(log_diabetes)
+
+#change outcome to numeric variable to allow for visualization
+log_diabetes1 <- log_diabetes %>%
+  mutate(Outcome = as.numeric(Outcome)) %>%
+  mutate(Outcome = Outcome - 1)
+ggplot(log_diabetes1, aes(BMI, Outcome)) + 
+  geom_point(aes(color = as.factor(predicted))) +
+  geom_smooth(method = "glm", se = FALSE, 
+              method.args = list(family = "binomial")) +
+  ylim(0,1) + 
+  geom_hline(yintercept = 0.5, lty = 2)
+#make roc plot
+ROC <- ggplot(log_diabetes1) + 
+  geom_roc(aes(d = Outcome, m = probability), n.cuts = 0)
+ROC
+
+#calculate area under curve
+calc_auc(ROC)
+
+#create ID for each patient in diabetes dataset
+diabetes<-diabetes %>%
+  mutate(ID = row_number())
+
+# Select a fraction of the data for training purposes
+train <- sample_frac(diabetes, size = 0.5)
+
+# Select the rest of the data for the test dataset
+test <- anti_join(diabetes, train, by = "ID")
+
+fit <- glm(Outcome ~ BMI, data = train, family = "binomial")
+
+# Results in a data frame for training data
+df_train <- data.frame(
+  probability = predict(fit, newdata = train, type = "response"),
+  Outcome = train$Outcome,
+  data_name = "training")
+
+# Results in a data frame for test data
+df_test <- data.frame(
+  probability = predict(fit, newdata = test, type = "response"),
+  Outcome = test$Outcome,
+  data_name = "test")
+
+# Combined results
+df_combined <- rbind(df_train, df_test)
+
+
+#evaluate the performance of our classifier on the `train` and `test` sets:
+ROC <- ggplot(df_combined) + 
+  geom_roc(aes(d = Outcome, m = probability, color = data_name, n.cuts = 0))
+ROC
+
+
+# Choose number of folds
+k = 10 
+
+# Randomly order rows in the dataset
+data <- diabetes[sample(nrow(diabetes)), ] 
+
+# Create k folds from the dataset
+folds <- cut(seq(1:nrow(data)), breaks = k, labels = FALSE)
+
+#perform k-fold cross validation
+
+diags_k <- NULL
+
+for(i in 1:k){
+  # Create training and test sets
+  train <- data[folds != i, ] # all observations except in fold i
+  test <- data[folds == i, ]  # observations in fold i
+  
+  # Train model on training set (all but fold i)
+  fit <- glm(Outcome ~ BMI, data = train, family = "binomial")
+  
+  # Test model on test set (fold i)
+  df <- data.frame(
+    probability = predict(model, newdata = test, type = "response"),
+    Outcome = test$Outcome)
+  
+  # Consider the ROC curve for the test dataset
+  ROC <- ggplot(df) + 
+    geom_roc(aes(d = Outcome, m = probability, n.cuts = 0))
+
+  # Get diagnostics for fold i (AUC)
+  diags_k[i] <- calc_auc(ROC)$AUC
+}
+
+#find the average performance on new data:
+mean(diags_k)
+```
+
+**Findings and Results**
+
+My new classified predicted new observations with an 83% accuracy. I did not notice signs of overfitting.
+
+```{r, echo=F}
+
+```
